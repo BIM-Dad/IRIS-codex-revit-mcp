@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
@@ -21,6 +22,7 @@ public static class RevitToolDispatcher
             "list_views" => BridgeResponse.Success(document.Title, ListViews(document)),
             "check_duplicate_sheet_numbers" => BridgeResponse.Success(document.Title, CheckDuplicateSheetNumbers(document)),
             "check_missing_titleblock_parameters" => BridgeResponse.Success(document.Title, CheckMissingTitleblockParameters(document, request.Parameters)),
+            "check_sheet_standards" => BridgeResponse.Success(document.Title, CheckSheetStandards(document, request.Parameters)),
             "propose_sheet_renames_from_csv_or_json" => BridgeResponse.Success(document.Title, ProposeSheetRenames(document, request.Parameters)),
             _ => BridgeResponse.Failure(document.Title, $"Unknown or unsupported tool '{request.Tool}'.")
         };
@@ -99,6 +101,133 @@ public static class RevitToolDispatcher
         {
             duplicateCount = duplicates.Count,
             duplicates
+        };
+    }
+
+    private static object CheckSheetStandards(Document document, JsonElement parameters)
+    {
+        var settings = ReadSheetStandardsSettings(parameters);
+        var sheetNumberRegex = new Regex(settings.SheetNumberRegex, RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        var sheets = GetSheets(document)
+            .OrderBy(sheet => sheet.SheetNumber, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var duplicateNumbers = sheets
+            .GroupBy(sheet => sheet.SheetNumber, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase);
+
+        var sheetResults = new List<object>();
+        var issueCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var failedSheetCount = 0;
+
+        foreach (var sheet in sheets)
+        {
+            var issues = new List<object>();
+            void AddIssue(string code, string severity, string message)
+            {
+                issues.Add(new { code, severity, message });
+                issueCounts[code] = issueCounts.TryGetValue(code, out var count) ? count + 1 : 1;
+            }
+
+            var sheetNumber = sheet.SheetNumber ?? string.Empty;
+            var sheetName = sheet.Name ?? string.Empty;
+
+            if (duplicateNumbers.TryGetValue(sheetNumber, out var duplicateCount))
+            {
+                AddIssue("duplicate_sheet_number", "error", $"Sheet number '{sheetNumber}' is used by {duplicateCount} sheets.");
+            }
+
+            if (string.IsNullOrWhiteSpace(sheetName))
+            {
+                AddIssue("empty_sheet_name", "error", "Sheet name is empty or whitespace.");
+            }
+
+            if (settings.FlagPlaceholderSheets && sheet.IsPlaceholder)
+            {
+                AddIssue("placeholder_sheet", "warning", "Sheet is a placeholder sheet.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(sheetNumber) && !sheetNumberRegex.IsMatch(sheetNumber))
+            {
+                AddIssue("sheet_number_format", "warning", $"Sheet number does not match '{settings.SheetNumberRegex}'.");
+            }
+
+            foreach (var nameIssue in GetSheetNameFormattingIssues(sheetName))
+            {
+                AddIssue(nameIssue.Code, nameIssue.Severity, nameIssue.Message);
+            }
+
+            var titleblocks = GetTitleblocksOnSheet(document, sheet).ToList();
+            if (!sheet.IsPlaceholder && titleblocks.Count == 0)
+            {
+                AddIssue("missing_titleblock", "error", "Sheet has no titleblock instance.");
+            }
+
+            if (titleblocks.Count > 1)
+            {
+                AddIssue("multiple_titleblocks", "warning", $"Sheet has {titleblocks.Count} titleblock instances.");
+            }
+
+            var titleblockResults = new List<object>();
+            foreach (var titleblock in titleblocks)
+            {
+                var missingParameters = settings.RequiredTitleblockParameters
+                    .Where(parameterName => IsMissingParameter(titleblock, parameterName))
+                    .ToList();
+
+                if (missingParameters.Count > 0)
+                {
+                    AddIssue("missing_titleblock_parameters", "error", $"Titleblock is missing or has blank required parameters: {string.Join(", ", missingParameters)}.");
+                }
+
+                titleblockResults.Add(new
+                {
+                    id = titleblock.Id.Value,
+                    uniqueId = titleblock.UniqueId,
+                    name = titleblock.Name,
+                    missingParameters
+                });
+            }
+
+            sheetResults.Add(new
+            {
+                id = sheet.Id.Value,
+                uniqueId = sheet.UniqueId,
+                sheetNumber,
+                name = sheetName,
+                isPlaceholder = sheet.IsPlaceholder,
+                titleblockCount = titleblocks.Count,
+                titleblocks = titleblockResults,
+                issueCount = issues.Count,
+                issues
+            });
+
+            if (issues.Count > 0)
+            {
+                failedSheetCount++;
+            }
+        }
+
+        return new
+        {
+            documentName = document.Title,
+            checkedAt = DateTimeOffset.UtcNow.ToString("O"),
+            settings = new
+            {
+                requiredTitleblockParameters = settings.RequiredTitleblockParameters,
+                sheetNumberRegex = settings.SheetNumberRegex,
+                flagPlaceholderSheets = settings.FlagPlaceholderSheets,
+                note = "Missing titleblock is not flagged for placeholder sheets."
+            },
+            summary = new
+            {
+                sheetCount = sheets.Count,
+                failedSheetCount,
+                issueCount = issueCounts.Values.Sum(),
+                issueCounts
+            },
+            sheets = sheetResults
         };
     }
 
@@ -233,6 +362,20 @@ public static class RevitToolDispatcher
             .ToList();
     }
 
+    private static IReadOnlyList<FamilyInstance> GetTitleblocksOnSheet(Document document, ViewSheet sheet)
+    {
+        if (sheet.IsPlaceholder)
+        {
+            return Array.Empty<FamilyInstance>();
+        }
+
+        return new FilteredElementCollector(document, sheet.Id)
+            .OfCategory(BuiltInCategory.OST_TitleBlocks)
+            .WhereElementIsNotElementType()
+            .Cast<FamilyInstance>()
+            .ToList();
+    }
+
     private static bool IsInternalView(this View view)
     {
         return view.ViewType is ViewType.Internal or ViewType.ProjectBrowser or ViewType.SystemBrowser;
@@ -271,6 +414,71 @@ public static class RevitToolDispatcher
             .Where(item => !string.IsNullOrWhiteSpace(item))
             .Select(item => item!)
             .ToList();
+    }
+
+    private static SheetStandardsSettings ReadSheetStandardsSettings(JsonElement parameters)
+    {
+        var requiredParameters = ReadStringArray(parameters, "requiredTitleblockParameters")
+            .Concat(ReadStringArray(parameters, "required_titleblock_parameters"))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (requiredParameters.Count == 0)
+        {
+            requiredParameters.AddRange(new[] { "Project Number", "Drawn By", "Checked By" });
+        }
+
+        var sheetNumberRegex = ReadStringProperty(parameters, "sheetNumberRegex")
+            ?? ReadStringProperty(parameters, "sheet_number_regex")
+            ?? "^[A-Z]+[0-9]{3}(\\.[0-9]{2})?$";
+
+        var flagPlaceholderSheets = ReadBoolProperty(parameters, "flagPlaceholderSheets")
+            ?? ReadBoolProperty(parameters, "flag_placeholder_sheets")
+            ?? true;
+
+        try
+        {
+            _ = new Regex(sheetNumberRegex);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new ArgumentException($"Invalid sheetNumberRegex: {ex.Message}", ex);
+        }
+
+        return new SheetStandardsSettings
+        {
+            RequiredTitleblockParameters = requiredParameters,
+            SheetNumberRegex = sheetNumberRegex,
+            FlagPlaceholderSheets = flagPlaceholderSheets
+        };
+    }
+
+    private static IEnumerable<(string Code, string Severity, string Message)> GetSheetNameFormattingIssues(string sheetName)
+    {
+        if (string.IsNullOrWhiteSpace(sheetName))
+        {
+            yield break;
+        }
+
+        if (!string.Equals(sheetName, sheetName.Trim(), StringComparison.Ordinal))
+        {
+            yield return ("sheet_name_format", "warning", "Sheet name has leading or trailing whitespace.");
+        }
+
+        if (sheetName.Contains("  ", StringComparison.Ordinal))
+        {
+            yield return ("sheet_name_format", "warning", "Sheet name contains repeated spaces.");
+        }
+
+        if (string.Equals(sheetName.Trim(), "Unnamed", StringComparison.OrdinalIgnoreCase))
+        {
+            yield return ("sheet_name_format", "warning", "Sheet name is still set to 'Unnamed'.");
+        }
+
+        if (sheetName.Any(char.IsLetter) && !sheetName.Any(char.IsUpper))
+        {
+            yield return ("sheet_name_format", "warning", "Sheet name does not contain uppercase letters.");
+        }
     }
 
     private static IReadOnlyList<SheetRenameProposal> ReadProposals(JsonElement parameters)
@@ -324,8 +532,19 @@ public static class RevitToolDispatcher
 
     private static string? ReadStringProperty(JsonElement element, string propertyName)
     {
-        return element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
+        return element.ValueKind == JsonValueKind.Object &&
+            element.TryGetProperty(propertyName, out var property) &&
+            property.ValueKind == JsonValueKind.String
             ? property.GetString()
+            : null;
+    }
+
+    private static bool? ReadBoolProperty(JsonElement element, string propertyName)
+    {
+        return element.ValueKind == JsonValueKind.Object &&
+            element.TryGetProperty(propertyName, out var property) &&
+            (property.ValueKind == JsonValueKind.True || property.ValueKind == JsonValueKind.False)
+            ? property.GetBoolean()
             : null;
     }
 
@@ -413,5 +632,12 @@ public static class RevitToolDispatcher
         public string CurrentNumber { get; init; } = string.Empty;
         public string NewNumber { get; init; } = string.Empty;
         public string NewName { get; init; } = string.Empty;
+    }
+
+    private sealed class SheetStandardsSettings
+    {
+        public IReadOnlyList<string> RequiredTitleblockParameters { get; init; } = Array.Empty<string>();
+        public string SheetNumberRegex { get; init; } = string.Empty;
+        public bool FlagPlaceholderSheets { get; init; }
     }
 }

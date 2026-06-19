@@ -57,9 +57,33 @@ Keep these two runtime pieces separated:
 - `list_views`
 - `check_duplicate_sheet_numbers`
 - `check_missing_titleblock_parameters`
+- `check_sheet_standards`
 - `propose_sheet_renames_from_csv_or_json`
 
 `propose_sheet_renames_from_csv_or_json` is read-only. It compares active Revit sheets against CSV or JSON proposal data and returns proposed changes without applying them.
+
+`check_sheet_standards` is read-only. It returns a structured QA/QC report for each sheet and checks:
+
+- Duplicate sheet numbers.
+- Empty sheet names.
+- Placeholder sheets.
+- Non-placeholder sheets with no titleblock.
+- Sheets with more than one titleblock.
+- Missing or blank required titleblock parameters.
+- Sheet number format issues.
+- Basic sheet name formatting issues such as leading/trailing whitespace, repeated spaces, `Unnamed`, or no uppercase letters.
+
+Default `check_sheet_standards` settings:
+
+```json
+{
+  "requiredTitleblockParameters": ["Project Number", "Drawn By", "Checked By"],
+  "sheetNumberRegex": "^[A-Z]+[0-9]{3}(\\.[0-9]{2})?$",
+  "flagPlaceholderSheets": true
+}
+```
+
+Placeholder sheets are reported when `flagPlaceholderSheets` is true, but missing titleblock is not flagged for placeholder sheets.
 
 Expected proposal fields:
 
@@ -159,6 +183,7 @@ enabled_tools = [
   "list_views",
   "check_duplicate_sheet_numbers",
   "check_missing_titleblock_parameters",
+  "check_sheet_standards",
   "propose_sheet_renames_from_csv_or_json",
 ]
 
@@ -187,6 +212,7 @@ Use the iris_revit MCP server.
 Call get_active_document_info and summarize the active Revit document.
 Then call list_sheets and report the sheet count plus the first 10 sheet numbers and names.
 Then call check_duplicate_sheet_numbers and report whether any duplicate sheet numbers exist.
+Then call check_sheet_standards with default settings and summarize the issue counts by category.
 
 Do not modify the Revit model.
 ```
@@ -232,7 +258,7 @@ cd opportunities\revit-mcp-integration
 scripts\SmokeTest-McpServer.cmd
 ```
 
-The script starts `src\mcp-server\server.js`, calls `get_active_document_info`, calls `list_sheets`, prints both responses, and exits with a helpful error if the Revit named pipe is unavailable.
+The script starts `src\mcp-server\server.js`, calls `get_active_document_info`, calls `list_sheets`, calls `check_sheet_standards`, prints the responses, and exits with a helpful error if the Revit named pipe is unavailable.
 
 If `node` is not on `PATH`, pass the full path:
 
@@ -346,8 +372,9 @@ Fix:
 4. Call `get_active_document_info`.
 5. Call `list_sheets`.
 6. Call `check_duplicate_sheet_numbers`.
-7. Call `propose_sheet_renames_from_csv_or_json` with `examples\sheet-renames.json`.
-8. Review `logs\audit.jsonl` and confirm each call logged timestamp, tool name, parameters, result, and errors.
+7. Call `check_sheet_standards`.
+8. Call `propose_sheet_renames_from_csv_or_json` with `examples\sheet-renames.json`.
+9. Review `logs\audit.jsonl` and confirm each call logged timestamp, tool name, parameters, result, and errors.
 
 ## Phase 2 Notes
 

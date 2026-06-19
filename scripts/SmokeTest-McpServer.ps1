@@ -109,7 +109,8 @@ function Invoke-McpRequest {
 function Invoke-McpTool {
     param(
         [System.Diagnostics.Process]$Process,
-        [string]$ToolName
+        [string]$ToolName,
+        [hashtable]$Arguments = @{}
     )
 
     $response = Invoke-McpRequest -Process $Process -Message @{
@@ -118,7 +119,7 @@ function Invoke-McpTool {
         method = "tools/call"
         params = @{
             name = $ToolName
-            arguments = @{}
+            arguments = $Arguments
         }
     }
 
@@ -166,6 +167,7 @@ Write-Host ""
 
 $server = $null
 $previousPipeEnv = $env:IRIS_REVIT_MCP_PIPE
+$previousAuditLogEnv = $env:IRIS_REVIT_MCP_AUDIT_LOG
 try {
     $NodeExe = Resolve-NodeExe -NodeCommand $NodeExe
     Test-Node -NodeCommand $NodeExe
@@ -196,7 +198,14 @@ try {
     Write-Host ""
 
     $sheetCount = if ($sheets -is [array]) { $sheets.Count } elseif ($null -ne $sheets) { 1 } else { 0 }
-    Write-Host "Smoke test passed. Active document responded and list_sheets returned $sheetCount sheet record(s)."
+
+    Write-Host "Calling check_sheet_standards..."
+    $sheetStandards = Invoke-McpTool -Process $server -ToolName "check_sheet_standards"
+    $sheetStandards | ConvertTo-Json -Depth 40
+    Write-Host ""
+
+    $standardsIssueCount = $sheetStandards.summary.issueCount
+    Write-Host "Smoke test passed. Active document responded, list_sheets returned $sheetCount sheet record(s), and check_sheet_standards returned $standardsIssueCount issue(s)."
     Write-Host "Audit log updated: $AuditLogPath"
     Write-Host "View recent audit entries with: scripts\Tail-AuditLog.cmd"
 }
@@ -208,6 +217,7 @@ catch {
 }
 finally {
     $env:IRIS_REVIT_MCP_PIPE = $previousPipeEnv
+    $env:IRIS_REVIT_MCP_AUDIT_LOG = $previousAuditLogEnv
 
     if ($null -ne $server -and -not $server.HasExited) {
         $server.StandardInput.Close()

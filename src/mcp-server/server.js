@@ -66,6 +66,29 @@ const tools = [
     }
   },
   {
+    name: "check_sheet_standards",
+    description: "Return a read-only sheet standards QA/QC report for the active Revit document.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        requiredTitleblockParameters: {
+          type: "array",
+          items: { type: "string" },
+          description: "Titleblock parameter names to require. Defaults to Project Number, Drawn By, and Checked By."
+        },
+        sheetNumberRegex: {
+          type: "string",
+          description: "Regular expression used to validate sheet numbers. Defaults to ^[A-Z]+[0-9]{3}(\\\\.[0-9]{2})?$."
+        },
+        flagPlaceholderSheets: {
+          type: "boolean",
+          description: "Whether placeholder sheets should be reported as issues. Defaults to true."
+        }
+      },
+      additionalProperties: false
+    }
+  },
+  {
     name: "propose_sheet_renames_from_csv_or_json",
     description: "Compare sheet rename proposal data with the active Revit document without applying changes.",
     inputSchema: {
