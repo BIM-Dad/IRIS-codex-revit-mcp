@@ -83,6 +83,23 @@ const tools = [
         flagPlaceholderSheets: {
           type: "boolean",
           description: "Whether placeholder sheets should be reported as issues. Defaults to true."
+        },
+        excludeSheetNumberPatterns: {
+          type: "array",
+          items: { type: "string" },
+          description: "Regular expression patterns for sheet numbers to exclude from standards checks. Defaults to none."
+        },
+        excludePlaceholderSheetsFromFailure: {
+          type: "boolean",
+          description: "Whether placeholder sheets should be excluded from failedSheetCount even when they have error-level issues. Defaults to true."
+        },
+        severityByIssueCode: {
+          type: "object",
+          additionalProperties: {
+            type: "string",
+            enum: ["error", "warning", "info"]
+          },
+          description: "Optional severity overrides by issue code. Supported severities are error, warning, and info."
         }
       },
       additionalProperties: false

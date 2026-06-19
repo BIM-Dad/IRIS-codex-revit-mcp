@@ -79,11 +79,38 @@ Default `check_sheet_standards` settings:
 {
   "requiredTitleblockParameters": ["Project Number", "Drawn By", "Checked By"],
   "sheetNumberRegex": "^[A-Z]+[0-9]{3}(\\.[0-9]{2})?$",
-  "flagPlaceholderSheets": true
+  "flagPlaceholderSheets": true,
+  "excludeSheetNumberPatterns": [],
+  "excludePlaceholderSheetsFromFailure": true,
+  "severityByIssueCode": {}
 }
 ```
 
-Placeholder sheets are reported when `flagPlaceholderSheets` is true, but missing titleblock is not flagged for placeholder sheets.
+Placeholder sheets are reported when `flagPlaceholderSheets` is true, but missing titleblock is not flagged for placeholder sheets. Sheets matching `excludeSheetNumberPatterns` are returned with `isExcluded: true` and are not checked. `severityByIssueCode` accepts `error`, `warning`, or `info` values for issue codes such as `missing_titleblock_parameters`, `sheet_number_format`, `placeholder_sheet`, and `sheet_name_format`.
+
+The `check_sheet_standards` summary includes:
+
+- `sheetCount`
+- `failedSheetCount`
+- `warningSheetCount`
+- `infoSheetCount`
+- `issueCountBySeverity`
+- `issueCountByCode`
+
+Example custom settings:
+
+```json
+{
+  "excludeSheetNumberPatterns": ["^Test", "^HOME PAGE$"],
+  "excludePlaceholderSheetsFromFailure": true,
+  "severityByIssueCode": {
+    "missing_titleblock_parameters": "error",
+    "sheet_number_format": "warning",
+    "placeholder_sheet": "info",
+    "sheet_name_format": "error"
+  }
+}
+```
 
 Expected proposal fields:
 
@@ -258,7 +285,7 @@ cd opportunities\revit-mcp-integration
 scripts\SmokeTest-McpServer.cmd
 ```
 
-The script starts `src\mcp-server\server.js`, calls `get_active_document_info`, calls `list_sheets`, calls `check_sheet_standards`, prints the responses, and exits with a helpful error if the Revit named pipe is unavailable.
+The script starts `src\mcp-server\server.js`, calls `get_active_document_info`, calls `list_sheets`, calls `check_sheet_standards` with sample severity and exclusion settings, prints the responses, and exits with a helpful error if the Revit named pipe is unavailable.
 
 If `node` is not on `PATH`, pass the full path:
 

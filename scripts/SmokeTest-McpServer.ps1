@@ -199,13 +199,24 @@ try {
 
     $sheetCount = if ($sheets -is [array]) { $sheets.Count } elseif ($null -ne $sheets) { 1 } else { 0 }
 
-    Write-Host "Calling check_sheet_standards..."
-    $sheetStandards = Invoke-McpTool -Process $server -ToolName "check_sheet_standards"
+    Write-Host "Calling check_sheet_standards with configurable severity and exclusions..."
+    $sheetStandardsSettings = @{
+        excludeSheetNumberPatterns = @("^Test", "^HOME PAGE$")
+        excludePlaceholderSheetsFromFailure = $true
+        severityByIssueCode = @{
+            missing_titleblock_parameters = "error"
+            sheet_number_format = "warning"
+            placeholder_sheet = "info"
+            sheet_name_format = "error"
+        }
+    }
+    $sheetStandards = Invoke-McpTool -Process $server -ToolName "check_sheet_standards" -Arguments $sheetStandardsSettings
     $sheetStandards | ConvertTo-Json -Depth 40
     Write-Host ""
 
     $standardsIssueCount = $sheetStandards.summary.issueCount
     Write-Host "Smoke test passed. Active document responded, list_sheets returned $sheetCount sheet record(s), and check_sheet_standards returned $standardsIssueCount issue(s)."
+    Write-Host "Standards summary: failed=$($sheetStandards.summary.failedSheetCount), warnings=$($sheetStandards.summary.warningSheetCount), info=$($sheetStandards.summary.infoSheetCount)"
     Write-Host "Audit log updated: $AuditLogPath"
     Write-Host "View recent audit entries with: scripts\Tail-AuditLog.cmd"
 }

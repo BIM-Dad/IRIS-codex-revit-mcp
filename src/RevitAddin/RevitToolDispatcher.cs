@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -108,30 +109,73 @@ public static class RevitToolDispatcher
     {
         var settings = ReadSheetStandardsSettings(parameters);
         var sheetNumberRegex = new Regex(settings.SheetNumberRegex, RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        var excludeSheetNumberRegexes = settings.ExcludeSheetNumberPatterns
+            .Select(pattern => new Regex(pattern, RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase))
+            .ToList();
         var sheets = GetSheets(document)
             .OrderBy(sheet => sheet.SheetNumber, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         var duplicateNumbers = sheets
+            .Where(sheet => !excludeSheetNumberRegexes.Any(pattern => pattern.IsMatch(sheet.SheetNumber ?? string.Empty)))
             .GroupBy(sheet => sheet.SheetNumber, StringComparer.OrdinalIgnoreCase)
             .Where(group => group.Count() > 1)
             .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase);
 
         var sheetResults = new List<object>();
-        var issueCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var issueCountByCode = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var issueCountBySeverity = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["error"] = 0,
+            ["warning"] = 0,
+            ["info"] = 0
+        };
         var failedSheetCount = 0;
+        var warningSheetCount = 0;
+        var infoSheetCount = 0;
 
         foreach (var sheet in sheets)
         {
-            var issues = new List<object>();
-            void AddIssue(string code, string severity, string message)
+            var issues = new List<SheetStandardsIssue>();
+            void AddIssue(string code, string defaultSeverity, string message)
             {
-                issues.Add(new { code, severity, message });
-                issueCounts[code] = issueCounts.TryGetValue(code, out var count) ? count + 1 : 1;
+                var severity = ResolveIssueSeverity(code, defaultSeverity, settings);
+                issues.Add(new SheetStandardsIssue
+                {
+                    Code = code,
+                    Severity = severity,
+                    Message = message
+                });
+                issueCountByCode[code] = issueCountByCode.TryGetValue(code, out var codeCount) ? codeCount + 1 : 1;
+                issueCountBySeverity[severity] = issueCountBySeverity.TryGetValue(severity, out var severityCount) ? severityCount + 1 : 1;
             }
 
             var sheetNumber = sheet.SheetNumber ?? string.Empty;
             var sheetName = sheet.Name ?? string.Empty;
+            var matchingExclusion = excludeSheetNumberRegexes
+                .FirstOrDefault(pattern => pattern.IsMatch(sheetNumber));
+            var isExcluded = matchingExclusion is not null;
+
+            if (isExcluded)
+            {
+                sheetResults.Add(new
+                {
+                    id = sheet.Id.Value,
+                    uniqueId = sheet.UniqueId,
+                    sheetNumber,
+                    name = sheetName,
+                    isPlaceholder = sheet.IsPlaceholder,
+                    isExcluded = true,
+                    exclusionPattern = matchingExclusion!.ToString(),
+                    titleblockCount = 0,
+                    titleblocks = Array.Empty<object>(),
+                    issueCount = 0,
+                    highestSeverity = (string?)null,
+                    issues
+                });
+
+                continue;
+            }
 
             if (duplicateNumbers.TryGetValue(sheetNumber, out var duplicateCount))
             {
@@ -190,6 +234,7 @@ public static class RevitToolDispatcher
                 });
             }
 
+            var highestSeverity = GetHighestSeverity(issues);
             sheetResults.Add(new
             {
                 id = sheet.Id.Value,
@@ -197,15 +242,26 @@ public static class RevitToolDispatcher
                 sheetNumber,
                 name = sheetName,
                 isPlaceholder = sheet.IsPlaceholder,
+                isExcluded = false,
+                exclusionPattern = (string?)null,
                 titleblockCount = titleblocks.Count,
                 titleblocks = titleblockResults,
                 issueCount = issues.Count,
+                highestSeverity,
                 issues
             });
 
-            if (issues.Count > 0)
+            if (highestSeverity == "error" && !(sheet.IsPlaceholder && settings.ExcludePlaceholderSheetsFromFailure))
             {
                 failedSheetCount++;
+            }
+            else if (highestSeverity == "warning")
+            {
+                warningSheetCount++;
+            }
+            else if (highestSeverity == "info")
+            {
+                infoSheetCount++;
             }
         }
 
@@ -218,14 +274,20 @@ public static class RevitToolDispatcher
                 requiredTitleblockParameters = settings.RequiredTitleblockParameters,
                 sheetNumberRegex = settings.SheetNumberRegex,
                 flagPlaceholderSheets = settings.FlagPlaceholderSheets,
-                note = "Missing titleblock is not flagged for placeholder sheets."
+                excludeSheetNumberPatterns = settings.ExcludeSheetNumberPatterns,
+                excludePlaceholderSheetsFromFailure = settings.ExcludePlaceholderSheetsFromFailure,
+                severityByIssueCode = settings.SeverityByIssueCode,
+                note = "Missing titleblock is not flagged for placeholder sheets. Excluded sheets are returned but not checked."
             },
             summary = new
             {
                 sheetCount = sheets.Count,
                 failedSheetCount,
-                issueCount = issueCounts.Values.Sum(),
-                issueCounts
+                warningSheetCount,
+                infoSheetCount,
+                issueCount = issueCountByCode.Values.Sum(),
+                issueCountBySeverity,
+                issueCountByCode
             },
             sheets = sheetResults
         };
@@ -436,21 +498,79 @@ public static class RevitToolDispatcher
             ?? ReadBoolProperty(parameters, "flag_placeholder_sheets")
             ?? true;
 
+        var excludeSheetNumberPatterns = ReadStringArray(parameters, "excludeSheetNumberPatterns")
+            .Concat(ReadStringArray(parameters, "exclude_sheet_number_patterns"))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var excludePlaceholderSheetsFromFailure = ReadBoolProperty(parameters, "excludePlaceholderSheetsFromFailure")
+            ?? ReadBoolProperty(parameters, "exclude_placeholder_sheets_from_failure")
+            ?? true;
+
+        var severityByIssueCode = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in ReadStringDictionary(parameters, "severityByIssueCode")
+            .Concat(ReadStringDictionary(parameters, "severity_by_issue_code")))
+        {
+            severityByIssueCode[pair.Key] = NormalizeSeverity(pair.Value, $"severityByIssueCode.{pair.Key}");
+        }
+
         try
         {
             _ = new Regex(sheetNumberRegex);
+            foreach (var pattern in excludeSheetNumberPatterns)
+            {
+                _ = new Regex(pattern);
+            }
         }
         catch (ArgumentException ex)
         {
-            throw new ArgumentException($"Invalid sheetNumberRegex: {ex.Message}", ex);
+            throw new ArgumentException($"Invalid sheet standards regular expression: {ex.Message}", ex);
         }
 
         return new SheetStandardsSettings
         {
             RequiredTitleblockParameters = requiredParameters,
             SheetNumberRegex = sheetNumberRegex,
-            FlagPlaceholderSheets = flagPlaceholderSheets
+            FlagPlaceholderSheets = flagPlaceholderSheets,
+            ExcludeSheetNumberPatterns = excludeSheetNumberPatterns,
+            ExcludePlaceholderSheetsFromFailure = excludePlaceholderSheetsFromFailure,
+            SeverityByIssueCode = severityByIssueCode
         };
+    }
+
+    private static string ResolveIssueSeverity(string issueCode, string defaultSeverity, SheetStandardsSettings settings)
+    {
+        return settings.SeverityByIssueCode.TryGetValue(issueCode, out var configuredSeverity)
+            ? configuredSeverity
+            : NormalizeSeverity(defaultSeverity, issueCode);
+    }
+
+    private static string NormalizeSeverity(string severity, string context)
+    {
+        var normalized = severity.Trim().ToLowerInvariant();
+        return normalized is "error" or "warning" or "info"
+            ? normalized
+            : throw new ArgumentException($"Invalid severity '{severity}' for {context}. Use error, warning, or info.");
+    }
+
+    private static string? GetHighestSeverity(IReadOnlyList<SheetStandardsIssue> issues)
+    {
+        if (issues.Any(issue => issue.Severity == "error"))
+        {
+            return "error";
+        }
+
+        if (issues.Any(issue => issue.Severity == "warning"))
+        {
+            return "warning";
+        }
+
+        if (issues.Any(issue => issue.Severity == "info"))
+        {
+            return "info";
+        }
+
+        return null;
     }
 
     private static IEnumerable<(string Code, string Severity, string Message)> GetSheetNameFormattingIssues(string sheetName)
@@ -548,6 +668,31 @@ public static class RevitToolDispatcher
             : null;
     }
 
+    private static IReadOnlyDictionary<string, string> ReadStringDictionary(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind != JsonValueKind.Object ||
+            !element.TryGetProperty(propertyName, out var property) ||
+            property.ValueKind != JsonValueKind.Object)
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in property.EnumerateObject())
+        {
+            if (item.Value.ValueKind == JsonValueKind.String)
+            {
+                var value = item.Value.GetString();
+                if (!string.IsNullOrWhiteSpace(item.Name) && !string.IsNullOrWhiteSpace(value))
+                {
+                    values[item.Name] = value!;
+                }
+            }
+        }
+
+        return values;
+    }
+
     private static IReadOnlyList<SheetRenameProposal> ParseCsv(string csvText)
     {
         var lines = csvText.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n', StringSplitOptions.RemoveEmptyEntries);
@@ -639,5 +784,20 @@ public static class RevitToolDispatcher
         public IReadOnlyList<string> RequiredTitleblockParameters { get; init; } = Array.Empty<string>();
         public string SheetNumberRegex { get; init; } = string.Empty;
         public bool FlagPlaceholderSheets { get; init; }
+        public IReadOnlyList<string> ExcludeSheetNumberPatterns { get; init; } = Array.Empty<string>();
+        public bool ExcludePlaceholderSheetsFromFailure { get; init; }
+        public IReadOnlyDictionary<string, string> SeverityByIssueCode { get; init; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private sealed class SheetStandardsIssue
+    {
+        [JsonPropertyName("code")]
+        public string Code { get; init; } = string.Empty;
+
+        [JsonPropertyName("severity")]
+        public string Severity { get; init; } = string.Empty;
+
+        [JsonPropertyName("message")]
+        public string Message { get; init; } = string.Empty;
     }
 }
