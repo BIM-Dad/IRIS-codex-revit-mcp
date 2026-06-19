@@ -1,3 +1,4 @@
 logs/*.jsonl
+reports/
 src/RevitAddin/bin/
 src/RevitAddin/obj/

@@ -58,6 +58,7 @@ Keep these two runtime pieces separated:
 - `check_duplicate_sheet_numbers`
 - `check_missing_titleblock_parameters`
 - `check_sheet_standards`
+- `export_sheet_standards_report`
 - `propose_sheet_renames_from_csv_or_json`
 
 `propose_sheet_renames_from_csv_or_json` is read-only. It compares active Revit sheets against CSV or JSON proposal data and returns proposed changes without applying them.
@@ -110,6 +111,20 @@ Example custom settings:
     "sheet_name_format": "error"
   }
 }
+```
+
+`export_sheet_standards_report` is also read-only against the Revit model. It runs the same sheet standards check, saves a timestamped JSON report under `reports\sheet-standards-YYYYMMDDTHHMMSSZ.json`, and writes a CSV triage file unless `includeCsv` is set to `false`. The report folder can be overridden for local workflows with `IRIS_REVIT_MCP_REPORTS_DIR`; generated reports are ignored by git. Audit entries remain separate in `logs\audit.jsonl`.
+
+Example natural-language Codex request:
+
+```text
+Use the iris_revit MCP server. Run a sheet standards report using these settings:
+- exclude sheet numbers matching ^Test or ^HOME PAGE$
+- treat placeholder_sheet as info
+- treat sheet_name_format as error
+
+Export the report as JSON and CSV, then summarize the failed, warning, and info sheet counts.
+Do not modify the Revit model.
 ```
 
 Expected proposal fields:
@@ -211,6 +226,7 @@ enabled_tools = [
   "check_duplicate_sheet_numbers",
   "check_missing_titleblock_parameters",
   "check_sheet_standards",
+  "export_sheet_standards_report",
   "propose_sheet_renames_from_csv_or_json",
 ]
 
@@ -240,6 +256,7 @@ Call get_active_document_info and summarize the active Revit document.
 Then call list_sheets and report the sheet count plus the first 10 sheet numbers and names.
 Then call check_duplicate_sheet_numbers and report whether any duplicate sheet numbers exist.
 Then call check_sheet_standards with default settings and summarize the issue counts by category.
+Then call export_sheet_standards_report with includeCsv true and report the JSON and CSV file paths.
 
 Do not modify the Revit model.
 ```
@@ -285,7 +302,7 @@ cd opportunities\revit-mcp-integration
 scripts\SmokeTest-McpServer.cmd
 ```
 
-The script starts `src\mcp-server\server.js`, calls `get_active_document_info`, calls `list_sheets`, calls `check_sheet_standards` with sample severity and exclusion settings, prints the responses, and exits with a helpful error if the Revit named pipe is unavailable.
+The script starts `src\mcp-server\server.js`, calls `get_active_document_info`, calls `list_sheets`, calls `check_sheet_standards` with sample severity and exclusion settings, calls `export_sheet_standards_report`, prints the responses, and exits with a helpful error if the Revit named pipe is unavailable.
 
 If `node` is not on `PATH`, pass the full path:
 
@@ -400,8 +417,21 @@ Fix:
 5. Call `list_sheets`.
 6. Call `check_duplicate_sheet_numbers`.
 7. Call `check_sheet_standards`.
-8. Call `propose_sheet_renames_from_csv_or_json` with `examples\sheet-renames.json`.
-9. Review `logs\audit.jsonl` and confirm each call logged timestamp, tool name, parameters, result, and errors.
+8. Call `export_sheet_standards_report` and confirm a JSON and CSV file were written under `reports\`.
+9. Call `propose_sheet_renames_from_csv_or_json` with `examples\sheet-renames.json`.
+10. Review `logs\audit.jsonl` and confirm each call logged timestamp, tool name, parameters, result, and errors.
+
+## Modeless Revit Chat Direction
+
+The current Phase 1 architecture is intentionally split: Revit exposes safe named-pipe commands, and Codex or another MCP client provides the natural-language interface outside Revit.
+
+A future modeless Revit chat window should be treated as a UI layer on top of the same safe command set:
+
+- Add a WPF modeless window in the Revit add-in.
+- Use Revit `ExternalEvent` for any UI-triggered Revit API access.
+- Keep the chat UI limited to known MCP/Revit commands.
+- Keep write actions disabled until Phase 2 approval workflows exist.
+- Reuse `check_sheet_standards` and `export_sheet_standards_report` rather than adding an execute-code endpoint.
 
 ## Phase 2 Notes
 

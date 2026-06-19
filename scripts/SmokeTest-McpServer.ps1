@@ -217,6 +217,14 @@ try {
     $standardsIssueCount = $sheetStandards.summary.issueCount
     Write-Host "Smoke test passed. Active document responded, list_sheets returned $sheetCount sheet record(s), and check_sheet_standards returned $standardsIssueCount issue(s)."
     Write-Host "Standards summary: failed=$($sheetStandards.summary.failedSheetCount), warnings=$($sheetStandards.summary.warningSheetCount), info=$($sheetStandards.summary.infoSheetCount)"
+
+    Write-Host ""
+    Write-Host "Calling export_sheet_standards_report..."
+    $exportResult = Invoke-McpTool -Process $server -ToolName "export_sheet_standards_report" -Arguments ($sheetStandardsSettings + @{ includeCsv = $true })
+    $exportResult | ConvertTo-Json -Depth 20
+    Write-Host "Report JSON: $($exportResult.jsonPath)"
+    Write-Host "Report CSV:  $($exportResult.csvPath)"
+
     Write-Host "Audit log updated: $AuditLogPath"
     Write-Host "View recent audit entries with: scripts\Tail-AuditLog.cmd"
 }

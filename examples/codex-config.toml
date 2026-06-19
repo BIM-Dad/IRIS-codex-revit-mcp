@@ -21,6 +21,7 @@ enabled_tools = [
   "check_duplicate_sheet_numbers",
   "check_missing_titleblock_parameters",
   "check_sheet_standards",
+  "export_sheet_standards_report",
   "propose_sheet_renames_from_csv_or_json",
 ]
 

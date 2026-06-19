@@ -10,6 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "../..");
 const pipePath = process.env.IRIS_REVIT_MCP_PIPE || "\\\\.\\pipe\\IRIS.RevitMcpBridge.v1";
 const auditLogPath = process.env.IRIS_REVIT_MCP_AUDIT_LOG || path.join(projectRoot, "logs", "audit.jsonl");
+const reportsDir = process.env.IRIS_REVIT_MCP_REPORTS_DIR || path.join(projectRoot, "reports");
 const serverInstructions =
   "Read-only Revit MCP bridge for Phase 1. Use only the listed tools. Do not modify the Revit model. If a tool call fails, check that Revit is open, the IRIS Revit MCP add-in is loaded, and the named pipe is available.";
 
@@ -100,6 +101,50 @@ const tools = [
             enum: ["error", "warning", "info"]
           },
           description: "Optional severity overrides by issue code. Supported severities are error, warning, and info."
+        }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "export_sheet_standards_report",
+    description: "Run the read-only sheet standards QA/QC check and save timestamped JSON and optional CSV report files under the local reports folder.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        requiredTitleblockParameters: {
+          type: "array",
+          items: { type: "string" },
+          description: "Titleblock parameter names to require. Defaults to Project Number, Drawn By, and Checked By."
+        },
+        sheetNumberRegex: {
+          type: "string",
+          description: "Regular expression used to validate sheet numbers. Defaults to ^[A-Z]+[0-9]{3}(\\\\.[0-9]{2})?$."
+        },
+        flagPlaceholderSheets: {
+          type: "boolean",
+          description: "Whether placeholder sheets should be reported as issues. Defaults to true."
+        },
+        excludeSheetNumberPatterns: {
+          type: "array",
+          items: { type: "string" },
+          description: "Regular expression patterns for sheet numbers to exclude from standards checks. Defaults to none."
+        },
+        excludePlaceholderSheetsFromFailure: {
+          type: "boolean",
+          description: "Whether placeholder sheets should be excluded from failedSheetCount even when they have error-level issues. Defaults to true."
+        },
+        severityByIssueCode: {
+          type: "object",
+          additionalProperties: {
+            type: "string",
+            enum: ["error", "warning", "info"]
+          },
+          description: "Optional severity overrides by issue code. Supported severities are error, warning, and info."
+        },
+        includeCsv: {
+          type: "boolean",
+          description: "Whether to also write a CSV issue triage file. Defaults to true."
         }
       },
       additionalProperties: false
@@ -221,13 +266,22 @@ async function callTool(params) {
 
   try {
     const bridgeParameters = await prepareArguments(name, args);
-    bridgeResponse = await callRevitBridge({ tool: name, parameters: bridgeParameters });
+    const bridgeToolName = name === "export_sheet_standards_report" ? "check_sheet_standards" : name;
+    bridgeResponse = await callRevitBridge({ tool: bridgeToolName, parameters: bridgeParameters });
 
     if (!bridgeResponse.ok) {
       auditError = bridgeResponse.error || "Revit bridge returned an error.";
       return {
         isError: true,
         content: [{ type: "text", text: JSON.stringify(bridgeResponse, null, 2) }]
+      };
+    }
+
+    if (name === "export_sheet_standards_report") {
+      const exportResult = await exportSheetStandardsReport(bridgeResponse.result, args);
+      bridgeResponse = {
+        ...bridgeResponse,
+        result: exportResult
       };
     }
 
@@ -253,6 +307,12 @@ async function callTool(params) {
 }
 
 async function prepareArguments(name, args) {
+  if (name === "export_sheet_standards_report") {
+    const prepared = { ...args };
+    delete prepared.includeCsv;
+    return prepared;
+  }
+
   if (name !== "propose_sheet_renames_from_csv_or_json" || !args.proposalFile) {
     return args;
   }
@@ -311,6 +371,75 @@ function callRevitBridge(request) {
 async function appendAuditLog(entry) {
   await fs.mkdir(path.dirname(auditLogPath), { recursive: true });
   await fs.appendFile(auditLogPath, `${JSON.stringify(entry)}\n`, "utf8");
+}
+
+async function exportSheetStandardsReport(report, args) {
+  await fs.mkdir(reportsDir, { recursive: true });
+
+  const timestamp = formatTimestampForFile(new Date());
+  const jsonPath = path.join(reportsDir, `sheet-standards-${timestamp}.json`);
+  const includeCsv = args.includeCsv !== false;
+  const csvPath = includeCsv ? path.join(reportsDir, `sheet-standards-${timestamp}.csv`) : null;
+
+  await fs.writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+
+  if (includeCsv && csvPath) {
+    await fs.writeFile(csvPath, sheetStandardsReportToCsv(report), "utf8");
+  }
+
+  return {
+    documentName: report.documentName || null,
+    checkedAt: report.checkedAt || null,
+    reportsDirectory: reportsDir,
+    jsonPath,
+    csvPath,
+    summary: report.summary || null
+  };
+}
+
+function sheetStandardsReportToCsv(report) {
+  const header = [
+    "sheetNumber",
+    "sheetName",
+    "isPlaceholder",
+    "isExcluded",
+    "exclusionPattern",
+    "titleblockCount",
+    "highestSeverity",
+    "issueCode",
+    "issueSeverity",
+    "message"
+  ];
+
+  const rows = [header];
+  for (const sheet of report.sheets || []) {
+    const issues = Array.isArray(sheet.issues) && sheet.issues.length > 0 ? sheet.issues : [null];
+    for (const issue of issues) {
+      rows.push([
+        sheet.sheetNumber ?? "",
+        sheet.name ?? "",
+        sheet.isPlaceholder ?? false,
+        sheet.isExcluded ?? false,
+        sheet.exclusionPattern ?? "",
+        sheet.titleblockCount ?? 0,
+        sheet.highestSeverity ?? "",
+        issue?.code ?? "",
+        issue?.severity ?? "",
+        issue?.message ?? ""
+      ]);
+    }
+  }
+
+  return `${rows.map((row) => row.map(csvCell).join(",")).join("\n")}\n`;
+}
+
+function csvCell(value) {
+  const text = String(value ?? "");
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll("\"", "\"\"")}"` : text;
+}
+
+function formatTimestampForFile(date) {
+  return date.toISOString().replaceAll("-", "").replaceAll(":", "").replace(/\.\d{3}Z$/, "Z");
 }
 
 function redactLargeInlineData(args) {
