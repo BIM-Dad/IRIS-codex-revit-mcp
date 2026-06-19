@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>IRIS Revit MCP Bridge</Name>
+    <Assembly>C:\Path\To\IrisRevitMcpAddin.dll</Assembly>
+    <AddInId>9D40F1C8-9357-4612-A9D9-2A52E98B445B</AddInId>
+    <FullClassName>Iris.RevitMcp.App</FullClassName>
+    <VendorId>SYMT</VendorId>
+    <VendorDescription>Symetri IRIS</VendorDescription>
+  </AddIn>
+</RevitAddIns>

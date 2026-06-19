@@ -1,0 +1,31 @@
+# Example Codex MCP configuration for the IRIS Revit MCP Phase 1 server.
+# Copy this block into ~/.codex/config.toml, or into a trusted project .codex/config.toml.
+#
+# Codex supports stdio MCP servers with:
+# - command: executable to launch
+# - args: arguments passed to the executable
+# - cwd: working directory for relative paths and default audit log location
+# - env: environment variables passed to the MCP server
+
+[mcp_servers.iris_revit]
+command = "node"
+args = ["C:\\Users\\GerardoRuiz-King\\OneDrive - Symetri\\Document\\IRIS\\opportunities\\revit-mcp-integration\\src\\mcp-server\\server.js"]
+cwd = "C:\\Users\\GerardoRuiz-King\\OneDrive - Symetri\\Document\\IRIS\\opportunities\\revit-mcp-integration"
+startup_timeout_sec = 20
+tool_timeout_sec = 60
+enabled = true
+enabled_tools = [
+  "get_active_document_info",
+  "list_sheets",
+  "list_views",
+  "check_duplicate_sheet_numbers",
+  "check_missing_titleblock_parameters",
+  "propose_sheet_renames_from_csv_or_json",
+]
+
+[mcp_servers.iris_revit.env]
+IRIS_REVIT_MCP_PIPE = "\\\\.\\pipe\\IRIS.RevitMcpBridge.v1"
+IRIS_REVIT_MCP_AUDIT_LOG = "C:\\Users\\GerardoRuiz-King\\OneDrive - Symetri\\Document\\IRIS\\opportunities\\revit-mcp-integration\\logs\\audit.jsonl"
+
+# If Codex cannot find node, replace command with the full path to node.exe:
+# command = "C:\\Users\\GerardoRuiz-King\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe"
