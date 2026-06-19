@@ -118,13 +118,19 @@ Example custom settings:
 Example natural-language Codex request:
 
 ```text
-Use the iris_revit MCP server. Run a sheet standards report using these settings:
-- exclude sheet numbers matching ^Test or ^HOME PAGE$
-- treat placeholder_sheet as info
-- treat sheet_name_format as error
+Run a standards check on sheets in the current active Revit model.
+Exclude sheet numbers matching ^Test or ^HOME PAGE$.
+Treat placeholder sheets as info and sheet name formatting issues as errors.
+Export the report as JSON and CSV.
+Summarize the failed, warning, and info sheet counts.
+```
 
-Export the report as JSON and CSV, then summarize the failed, warning, and info sheet counts.
-Do not modify the Revit model.
+Short forms that should route to the same tools:
+
+```text
+Run a standards check on sheets in the current active model.
+Export a sheet standards report for the active Revit model.
+Run a sheet QA/QC check and save the report.
 ```
 
 Expected proposal fields:
@@ -134,6 +140,20 @@ Expected proposal fields:
 - `newName` or `new_name`
 
 ## Setup And Test
+
+### Recommended Codex Prompts
+
+Once the `iris_revit` MCP server is connected, you should not need to mention tool names. Use plain requests like:
+
+```text
+Run a standards check on sheets in the current active Revit model.
+```
+
+```text
+Export a sheet standards report for the current active Revit model and summarize the results.
+```
+
+Codex should route standards/QA/QC/sheet audit wording to `check_sheet_standards`, and route save/export/report wording to `export_sheet_standards_report`.
 
 ### Prerequisites
 
@@ -250,15 +270,7 @@ Restart or reload Codex after adding the server entry. In the Codex CLI TUI, use
 After Revit 2026 is open with a model loaded, start a new Codex thread or reload the current one and run:
 
 ```text
-Use the iris_revit MCP server.
-
-Call get_active_document_info and summarize the active Revit document.
-Then call list_sheets and report the sheet count plus the first 10 sheet numbers and names.
-Then call check_duplicate_sheet_numbers and report whether any duplicate sheet numbers exist.
-Then call check_sheet_standards with default settings and summarize the issue counts by category.
-Then call export_sheet_standards_report with includeCsv true and report the JSON and CSV file paths.
-
-Do not modify the Revit model.
+Run a standards check on sheets in the current active Revit model.
 ```
 
 ### 5. Test `list_sheets` From an Open Revit Model

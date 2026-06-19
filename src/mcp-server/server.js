@@ -11,8 +11,13 @@ const projectRoot = path.resolve(__dirname, "../..");
 const pipePath = process.env.IRIS_REVIT_MCP_PIPE || "\\\\.\\pipe\\IRIS.RevitMcpBridge.v1";
 const auditLogPath = process.env.IRIS_REVIT_MCP_AUDIT_LOG || path.join(projectRoot, "logs", "audit.jsonl");
 const reportsDir = process.env.IRIS_REVIT_MCP_REPORTS_DIR || path.join(projectRoot, "reports");
-const serverInstructions =
-  "Read-only Revit MCP bridge for Phase 1. Use only the listed tools. Do not modify the Revit model. If a tool call fails, check that Revit is open, the IRIS Revit MCP add-in is loaded, and the named pipe is available.";
+const serverInstructions = [
+  "Read-only Revit MCP bridge for Phase 1. Use only the listed tools. Do not modify the Revit model.",
+  "Natural-language routing: if the user asks to run a standards check, sheet standards check, QA/QC check, or sheet audit on the current/active Revit model, call check_sheet_standards.",
+  "If the user asks to save, export, create, or generate a sheet standards report, call export_sheet_standards_report.",
+  "If the user mentions sheets without asking for a standards check, prefer list_sheets.",
+  "If a tool call fails, check that Revit is open, the IRIS Revit MCP add-in is loaded, and the named pipe is available."
+].join(" ");
 
 const tools = [
   {
@@ -68,7 +73,7 @@ const tools = [
   },
   {
     name: "check_sheet_standards",
-    description: "Return a read-only sheet standards QA/QC report for the active Revit document.",
+    description: "Run a read-only sheet standards, QA/QC, or sheet audit check for the current active Revit model and return structured results.",
     inputSchema: {
       type: "object",
       properties: {
@@ -108,7 +113,7 @@ const tools = [
   },
   {
     name: "export_sheet_standards_report",
-    description: "Run the read-only sheet standards QA/QC check and save timestamped JSON and optional CSV report files under the local reports folder.",
+    description: "Run a read-only sheet standards, QA/QC, or sheet audit check for the current active Revit model and save timestamped JSON and optional CSV report files under the local reports folder.",
     inputSchema: {
       type: "object",
       properties: {
