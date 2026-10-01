@@ -17,7 +17,7 @@ $revitInstallDir = "C:\Program Files\Autodesk\Revit $RevitVersion"
 $revitApi = Join-Path $revitInstallDir "RevitAPI.dll"
 $addinTargetDir = Join-Path $env:APPDATA "Autodesk\Revit\Addins\$RevitVersion"
 $addinTarget = Join-Path $addinTargetDir "IrisRevitMcp.addin"
-$builtDll = Join-Path $projectRoot "src\RevitAddin\bin\$Configuration\net8.0-windows\IrisRevitMcpAddin.dll"
+$builtDll = Join-Path $projectRoot "src\RevitAddin\bin\$Configuration\net10.0-windows\IrisRevitMcpAddin.dll"
 
 Write-Host "Installing IRIS Revit MCP add-in"
 Write-Host "Project root:  $projectRoot"

@@ -166,14 +166,14 @@ Codex should route standards/QA/QC/sheet audit wording to `check_sheet_standards
 The project defaults to Revit 2026. Pass `RevitVersion` if you are targeting a different installed Revit version.
 
 ```powershell
-cd opportunities\revit-mcp-integration\src\RevitAddin
+cd <repository-root>\src\RevitAddin
 dotnet build --configuration Debug /p:RevitVersion=2026
 ```
 
 The default Debug build output is:
 
 ```text
-src\RevitAddin\bin\Debug\net8.0-windows\IrisRevitMcpAddin.dll
+src\RevitAddin\bin\Debug\net10.0-windows\IrisRevitMcpAddin.dll
 ```
 
 ### 2. Load the Add-In in Revit
@@ -181,7 +181,7 @@ src\RevitAddin\bin\Debug\net8.0-windows\IrisRevitMcpAddin.dll
 Recommended for Revit 2026:
 
 ```cmd
-cd opportunities\revit-mcp-integration
+cd <repository-root>
 scripts\Install-RevitAddin.cmd -RevitVersion 2026
 ```
 
@@ -196,7 +196,7 @@ Manual install: copy `src\RevitAddin\IrisRevitMcp.addin` into your Revit add-ins
 Update the manifest `Assembly` value to the absolute path of the built DLL. Example:
 
 ```xml
-<Assembly>C:\Users\GerardoRuiz-King\OneDrive - Symetri\Document\IRIS\opportunities\revit-mcp-integration\src\RevitAddin\bin\Debug\net8.0-windows\IrisRevitMcpAddin.dll</Assembly>
+<Assembly>C:\Dev\IRIS\IRIS-codex-revit-mcp\src\RevitAddin\bin\Debug\net10.0-windows\IrisRevitMcpAddin.dll</Assembly>
 ```
 
 Then start Revit and open a model. The add-in starts the local named-pipe bridge automatically during Revit startup:
@@ -210,7 +210,7 @@ Then start Revit and open a model. The add-in starts the local named-pipe bridge
 From this folder:
 
 ```powershell
-cd opportunities\revit-mcp-integration
+cd <repository-root>
 node src\mcp-server\server.js
 ```
 
@@ -226,7 +226,7 @@ Optional environment variables:
 Codex uses stdio MCP servers from `config.toml`. The server command should launch:
 
 ```powershell
-node C:\Users\GerardoRuiz-King\OneDrive - Symetri\Document\IRIS\opportunities\revit-mcp-integration\src\mcp-server\server.js
+node .\src\mcp-server\server.js
 ```
 
 Add this block to `~/.codex/config.toml`, or to a trusted project `.codex/config.toml`:
@@ -234,8 +234,8 @@ Add this block to `~/.codex/config.toml`, or to a trusted project `.codex/config
 ```toml
 [mcp_servers.iris_revit]
 command = "node"
-args = ["C:\\Users\\GerardoRuiz-King\\OneDrive - Symetri\\Document\\IRIS\\opportunities\\revit-mcp-integration\\src\\mcp-server\\server.js"]
-cwd = "C:\\Users\\GerardoRuiz-King\\OneDrive - Symetri\\Document\\IRIS\\opportunities\\revit-mcp-integration"
+args = ["C:\\Dev\\IRIS\\IRIS-codex-revit-mcp\\src\\mcp-server\\server.js"]
+cwd = "C:\\Dev\\IRIS\\IRIS-codex-revit-mcp"
 startup_timeout_sec = 20
 tool_timeout_sec = 60
 enabled = true
@@ -252,7 +252,7 @@ enabled_tools = [
 
 [mcp_servers.iris_revit.env]
 IRIS_REVIT_MCP_PIPE = "\\\\.\\pipe\\IRIS.RevitMcpBridge.v1"
-IRIS_REVIT_MCP_AUDIT_LOG = "C:\\Users\\GerardoRuiz-King\\OneDrive - Symetri\\Document\\IRIS\\opportunities\\revit-mcp-integration\\logs\\audit.jsonl"
+IRIS_REVIT_MCP_AUDIT_LOG = "C:\\DevData\\IRIS\\RevitMcp\\audit.jsonl"
 ```
 
 The same example is available at `examples\codex-config.toml`.
@@ -260,7 +260,7 @@ The same example is available at `examples\codex-config.toml`.
 If Codex cannot find `node`, replace `command = "node"` with the full path to Node, for example:
 
 ```toml
-command = "C:\\Users\\GerardoRuiz-King\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe"
+command = "C:\\path\\to\\node.exe"
 ```
 
 Restart or reload Codex after adding the server entry. In the Codex CLI TUI, use `/mcp` to confirm `iris_revit` is active and tools are visible. The MCP server must be launched by Codex as a stdio process; do not point Codex at a TCP port for this proof of concept.
@@ -303,14 +303,14 @@ If `list_sheets` returns a bridge connection error, check that Revit is open and
 After Revit is open with a model loaded, run:
 
 ```powershell
-cd opportunities\revit-mcp-integration
+cd <repository-root>
 .\scripts\SmokeTest-McpServer.ps1
 ```
 
 From Command Prompt instead of PowerShell, run:
 
 ```cmd
-cd opportunities\revit-mcp-integration
+cd <repository-root>
 scripts\SmokeTest-McpServer.cmd
 ```
 
@@ -328,7 +328,7 @@ From Command Prompt:
 scripts\SmokeTest-McpServer.cmd -NodeExe "C:\Path\To\node.exe"
 ```
 
-The script also checks common Node install locations, including the Codex bundled runtime under `%USERPROFILE%\.cache\codex-runtimes`.
+The script also checks common per-user and system Node installation locations.
 
 To view recent audit entries:
 
@@ -417,7 +417,7 @@ Fix:
 
 1. Confirm `IRIS_REVIT_MCP_AUDIT_LOG` in the Codex MCP config points to a writable path.
 2. If the env var is omitted, the server writes to `logs\audit.jsonl` under the project root.
-3. Confirm the `cwd` in the MCP config is the `opportunities\revit-mcp-integration` folder.
+3. Confirm the `cwd` in the MCP config is the repository root.
 4. Run `scripts\Tail-AuditLog.cmd` to inspect the default audit log.
 
 ## Minimal Test Workflow

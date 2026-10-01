@@ -9,8 +9,8 @@
 
 [mcp_servers.iris_revit]
 command = "node"
-args = ["C:\\Users\\GerardoRuiz-King\\OneDrive - Symetri\\Document\\IRIS\\opportunities\\revit-mcp-integration\\src\\mcp-server\\server.js"]
-cwd = "C:\\Users\\GerardoRuiz-King\\OneDrive - Symetri\\Document\\IRIS\\opportunities\\revit-mcp-integration"
+args = ["C:\\Dev\\IRIS\\IRIS-codex-revit-mcp\\src\\mcp-server\\server.js"]
+cwd = "C:\\Dev\\IRIS\\IRIS-codex-revit-mcp"
 startup_timeout_sec = 20
 tool_timeout_sec = 60
 enabled = true
@@ -27,7 +27,7 @@ enabled_tools = [
 
 [mcp_servers.iris_revit.env]
 IRIS_REVIT_MCP_PIPE = "\\\\.\\pipe\\IRIS.RevitMcpBridge.v1"
-IRIS_REVIT_MCP_AUDIT_LOG = "C:\\Users\\GerardoRuiz-King\\OneDrive - Symetri\\Document\\IRIS\\opportunities\\revit-mcp-integration\\logs\\audit.jsonl"
+IRIS_REVIT_MCP_AUDIT_LOG = "C:\\DevData\\IRIS\\RevitMcp\\audit.jsonl"
 
 # If Codex cannot find node, replace command with the full path to node.exe:
-# command = "C:\\Users\\GerardoRuiz-King\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe"
+# command = "C:\\path\\to\\node.exe"

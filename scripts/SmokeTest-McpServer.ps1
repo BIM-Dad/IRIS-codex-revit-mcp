@@ -32,7 +32,6 @@ function Resolve-NodeExe {
     }
     catch {
         $candidatePaths = @(
-            (Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"),
             (Join-Path $env:LOCALAPPDATA "Programs\nodejs\node.exe"),
             "C:\Program Files\nodejs\node.exe",
             "C:\Program Files (x86)\nodejs\node.exe"
